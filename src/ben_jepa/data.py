@@ -132,7 +132,9 @@ def build_subset(cfg: Config, classes: list[str], force: bool = False):
     top = set(classes)
     target = cfg.per_class
     counts = {c: 0 for c in classes}
-    cap = max(cfg.scan_size, target * len(classes) * 50)  # tope de seguridad
+    # Tope de streaming: si una clase es demasiado rara para llegar a
+    # `target`, no recorrer indefinidamente el dataset (descarga lenta).
+    cap = max(cfg.scan_size, target * len(classes) * 10)
 
     ds = _load_stream(cfg).select_columns(["img", "labels"])
     X: list[np.ndarray] = []

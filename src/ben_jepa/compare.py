@@ -40,8 +40,8 @@ def compare(cfg: Config, X: np.ndarray, y: np.ndarray,
     logreg = make_logreg(cfg, C=best_C if best_C else 1.0)
     svm = make_svm(cfg)
 
-    s_lr = cross_val_score(logreg, X, y, cv=cv, scoring="accuracy", n_jobs=cfg.n_jobs)
-    s_sv = cross_val_score(svm, X, y, cv=cv, scoring="accuracy", n_jobs=cfg.n_jobs)
+    s_lr = cross_val_score(logreg, X, y, cv=cv, scoring="balanced_accuracy", n_jobs=cfg.n_jobs)
+    s_sv = cross_val_score(svm, X, y, cv=cv, scoring="balanced_accuracy", n_jobs=cfg.n_jobs)
 
     stat, p = wilcoxon(s_lr, s_sv)
     if p < ALPHA:
@@ -60,7 +60,7 @@ def compare(cfg: Config, X: np.ndarray, y: np.ndarray,
     ax.boxplot([s_lr, s_sv])
     ax.set_xticks([1, 2])
     ax.set_xticklabels(["LogReg L2", "SVM RBF"])
-    ax.set_ylabel("Accuracy por fold")
+    ax.set_ylabel("Balanced accuracy por fold")
     ax.set_title(f"Comparacion ({cfg.cv_repeats}x{cfg.cv_splits} CV)\nWilcoxon p={p:.4g}")
     fig.tight_layout()
     fig.savefig(cfg.fig_dir / "model_comparison.png", dpi=120)
@@ -68,10 +68,10 @@ def compare(cfg: Config, X: np.ndarray, y: np.ndarray,
 
     result = {
         "cv": f"{cfg.cv_repeats} repeticiones x {cfg.cv_splits} folds",
-        "logreg_accuracy_mean": float(s_lr.mean()),
-        "logreg_accuracy_std": float(s_lr.std()),
-        "svm_accuracy_mean": float(s_sv.mean()),
-        "svm_accuracy_std": float(s_sv.std()),
+        "logreg_bal_acc_mean": float(s_lr.mean()),
+        "logreg_bal_acc_std": float(s_lr.std()),
+        "svm_bal_acc_mean": float(s_sv.mean()),
+        "svm_bal_acc_std": float(s_sv.std()),
         "wilcoxon_stat": float(stat),
         "p_value": float(p),
         "alpha": ALPHA,

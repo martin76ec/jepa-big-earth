@@ -28,9 +28,12 @@ estadísticamente una **Regresión Logística Regularizada** contra una
    En su lugar se toma cualquier parche con ≥1 etiqueta del top-5 y se le
    asigna la clase del top-5 **menos representada** hasta el momento
    (balanceo *greedy*, determinista), formando un problema de 5 clases
-   balanceado. Por costo computacional el subconjunto es pequeño
-   (`per_class = 35` → 175 imágenes); el encoder JEPA se aplica una sola
-   vez sobre ese subconjunto y los *embeddings* se cachean.
+   balanceado, con un tope `per_class` (cada clase llega a
+   `min(disponibles, per_class)`). Por defecto `per_class = 2000`
+   (≈10 000 imágenes; la clase más rara puede quedar por debajo). El
+   encoder JEPA se aplica una sola vez sobre ese subconjunto y los
+   *embeddings* se cachean. Como las clases quedan desbalanceadas, la
+   métrica de tuning/comparación es **balanced accuracy** (no accuracy).
 3. **Feature Extraction (JEPA)**: I-JEPA ViT-H/14 congelado; *embedding*
    por imagen = *mean pooling* de los tokens de parche. Es *transfer
    learning* sobre imágenes, por lo que —según el rubric— el paso de
