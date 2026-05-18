@@ -33,7 +33,10 @@ def make_logreg(cfg: Config, C: float = 1.0) -> Pipeline:
             (
                 "clf",
                 LogisticRegression(
-                    penalty="l2",
+                    # L2 puro: l1_ratio=0 (en sklearn>=1.8 'penalty' esta
+                    # deprecado; con penalty por defecto + l1_ratio=0 da
+                    # L2 y es retrocompatible con sklearn>=1.4).
+                    l1_ratio=0,
                     C=C,
                     solver="lbfgs",
                     max_iter=2000,
