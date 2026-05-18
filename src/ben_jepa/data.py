@@ -51,6 +51,38 @@ def scan_labels(cfg: Config) -> tuple[Counter, list[int]]:
     return label_counts, cardinalities
 
 
+def _scan_path(cfg: Config):
+    return cfg.cache_dir / "scan.json"
+
+
+def scan_labels_cached(cfg: Config, force: bool = False) -> tuple[Counter, list[int]]:
+    """`scan_labels` con cache en disco (clave: `scan_size`).
+
+    `scan_labels` no se cacheaba: cada corrida de `eda`/`all` repetia la
+    pasada de streaming de `scan_size` ejemplos. Aqui persistimos el
+    Counter de etiquetas y la lista de cardinalidades en `scan.json`. Si
+    cambia `scan_size` (o `force=True`), la cache se invalida y se reescanea.
+    """
+    path = _scan_path(cfg)
+    if path.exists() and not force:
+        data = json.loads(path.read_text())
+        if data.get("scan_size") == cfg.scan_size:
+            return Counter(data["label_counts"]), list(data["cardinalities"])
+
+    label_counts, cardinalities = scan_labels(cfg)
+    cfg.make_dirs()
+    path.write_text(
+        json.dumps(
+            {
+                "scan_size": cfg.scan_size,
+                "label_counts": dict(label_counts),
+                "cardinalities": cardinalities,
+            }
+        )
+    )
+    return label_counts, cardinalities
+
+
 def top_k_classes(label_counts: Counter, k: int) -> list[str]:
     return [name for name, _ in label_counts.most_common(k)]
 

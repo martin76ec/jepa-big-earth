@@ -7,6 +7,7 @@ matplotlib>=3.8
 
 # Extracción de características con JEPA (transfer learning)
 torch>=2.4
+torchvision>=0.19   # requerido por el image processor "fast" de transformers
 transformers>=4.46
 pillow>=10.0
 

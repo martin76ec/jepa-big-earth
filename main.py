@@ -28,7 +28,7 @@ from src.ben_jepa.config import CFG
 from src.ben_jepa.data import (
     build_subset,
     load_cached_classes,
-    scan_labels,
+    scan_labels_cached,
     top_k_classes,
 )
 from src.ben_jepa.features import embeddings_cached, get_embeddings
@@ -39,12 +39,12 @@ def _resolve_classes():
     cached = load_cached_classes(CFG)
     if cached:
         return cached
-    label_counts, _ = scan_labels(CFG)
+    label_counts, _ = scan_labels_cached(CFG)
     return top_k_classes(label_counts, CFG.top_k)
 
 
 def _load_scan_and_subset():
-    label_counts, cardinalities = scan_labels(CFG)
+    label_counts, cardinalities = scan_labels_cached(CFG)
     classes = top_k_classes(label_counts, CFG.top_k)
     X, y, classes = build_subset(CFG, classes)
     return label_counts, cardinalities, classes, X, y
