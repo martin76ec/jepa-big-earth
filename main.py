@@ -24,6 +24,8 @@ import argparse
 import json
 import os
 import sys
+import time
+from contextlib import contextmanager
 
 from src.ben_jepa.config import CFG
 from src.ben_jepa.data import (
@@ -37,6 +39,34 @@ from src.ben_jepa.features import embeddings_cached, get_embeddings
 # Forzar recomputo de embeddings JEPA aunque exista la cache. Lo setea
 # main() desde --force-encode o la env var FORCE_ENCODE.
 FORCE_ENCODE = False
+
+# Reloj por etapa (wall-clock). Va a stderr para no ensuciar el JSON de
+# stdout; deja ver de un vistazo donde se va el tiempo (p. ej. si el
+# encode JEPA tardo 0s significa que se sirvio de cache).
+_TIMINGS: dict[str, float] = {}
+
+
+@contextmanager
+def _timed(label: str):
+    print(f"[time] >>> {label} ...", file=sys.stderr, flush=True)
+    t0 = time.perf_counter()
+    try:
+        yield
+    finally:
+        dt = time.perf_counter() - t0
+        _TIMINGS[label] = _TIMINGS.get(label, 0.0) + dt
+        print(f"[time] <<< {label}: {dt:.1f}s", file=sys.stderr, flush=True)
+
+
+def _print_timing_summary() -> None:
+    if not _TIMINGS:
+        return
+    total = sum(_TIMINGS.values())
+    print("[time] --- resumen por etapa ---", file=sys.stderr)
+    for label, dt in _TIMINGS.items():
+        pct = (100.0 * dt / total) if total else 0.0
+        print(f"[time]   {label:<14} {dt:8.1f}s  {pct:5.1f}%", file=sys.stderr)
+    print(f"[time]   {'TOTAL':<14} {total:8.1f}s", file=sys.stderr, flush=True)
 
 
 def _resolve_classes():
@@ -110,18 +140,25 @@ def cmd_all():
     from src.ben_jepa.tuning import tune_logreg
     from src.ben_jepa.viz import tsne_plot
 
-    label_counts, cardinalities, classes, X, y = _load_scan_and_subset()
-    run_eda(CFG, label_counts, cardinalities, classes, X, y)
-    emb, y, classes = get_embeddings(CFG, X, y, classes, force=FORCE_ENCODE)
+    with _timed("scan+subset"):
+        label_counts, cardinalities, classes, X, y = _load_scan_and_subset()
+    with _timed("eda"):
+        run_eda(CFG, label_counts, cardinalities, classes, X, y)
+    with _timed("jepa encode"):
+        emb, y, classes = get_embeddings(CFG, X, y, classes, force=FORCE_ENCODE)
     # Libera el subconjunto de imagenes (~0.5 GB) y el escaneo antes de la
     # fase sklearn (paralela): reduce el pico de RAM que causaba el OOM.
     del X, label_counts, cardinalities
     import gc
 
     gc.collect()
-    tune = tune_logreg(CFG, emb, y)
-    cmp = compare(CFG, emb, y, best_C=tune["best_C"])
-    tsne_plot(CFG, emb, y, classes)
+    with _timed("tune"):
+        tune = tune_logreg(CFG, emb, y)
+    with _timed("compare"):
+        cmp = compare(CFG, emb, y, best_C=tune["best_C"])
+    with _timed("tsne"):
+        tsne_plot(CFG, emb, y, classes)
+    _print_timing_summary()
     print(json.dumps({"tuning": tune, "comparison": cmp}, indent=2))
 
 

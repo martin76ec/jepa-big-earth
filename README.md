@@ -24,6 +24,9 @@ estadísticamente una **Regresión Logística Regularizada** contra una
    frecuentes (dataset multi-etiqueta de 43 clases CLC).
 2. **Subconjunto multiclase**: se conservan parches con **etiqueta única**
    dentro del top-5, formando un problema de clasificación de 5 clases.
+   Por costo computacional se usa un subconjunto pequeño y balanceado
+   (`per_class = 35` → 175 imágenes); el encoder JEPA se aplica una sola
+   vez sobre ese subconjunto y los *embeddings* se cachean.
 3. **Feature Extraction (JEPA)**: I-JEPA ViT-H/14 congelado; *embedding*
    por imagen = *mean pooling* de los tokens de parche. Es *transfer
    learning* sobre imágenes, por lo que —según el rubric— el paso de
@@ -34,9 +37,11 @@ estadísticamente una **Regresión Logística Regularizada** contra una
 5. **Optimización de hiperparámetros**: `GridSearchCV` sobre `C` (=1/λ)
    con `RepeatedStratifiedKFold`; se generan curva de validación y curva
    de aprendizaje.
-6. **Comparación estadística**: *repeated k-fold CV* (10×10 por defecto,
+6. **Comparación estadística**: *repeated k-fold CV* (10×3 por defecto,
    mismos *splits* para ambos modelos) + test pareado de **Wilcoxon**
-   (α = 0.05).
+   (α = 0.05). La CV se hace **solo sobre el clasificador** (scaler +
+   modelo) sobre los *embeddings* ya extraídos: JEPA queda fuera del
+   bucle de CV (encoder congelado, sin fuga de información).
 7. **t-SNE**: proyección 2D de los *embeddings* coloreada por clase.
 
 ## 3. Instalación

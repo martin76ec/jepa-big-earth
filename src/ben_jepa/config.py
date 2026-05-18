@@ -32,8 +32,10 @@ class Config:
     scan_size: int = 20_000
     # Numero de clases mas frecuentes a conservar.
     top_k: int = 5
-    # Imagenes por clase en el subconjunto de modelado (5 * 700 = 3500).
-    per_class: int = 700
+    # Imagenes por clase en el subconjunto de modelado. Deliberadamente
+    # pequeno (~5% de 700) para que el encode JEPA + sklearn sean rapidos:
+    # 5 * 35 = 175 imagenes en total.
+    per_class: int = 35
     # Tamano al que se redimensionan las imagenes antes de JEPA.
     image_size: int = 224
 
@@ -49,7 +51,9 @@ class Config:
 
     # --- Validacion cruzada ---
     cv_splits: int = 10
-    cv_repeats: int = 10          # comparacion estadistica (10x10 por defecto)
+    cv_repeats: int = 3           # comparacion estadistica (10x3); subset
+                                  # chico (175): mas repeticiones solo darian
+                                  # falsa precision sobre los mismos datos
     tune_repeats: int = 3         # optimizacion de hiperparametros (mas barato)
     random_state: int = 42
 
