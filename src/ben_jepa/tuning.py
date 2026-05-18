@@ -28,7 +28,10 @@ from sklearn.model_selection import (
 from .config import Config
 from .models import make_logreg
 
-C_GRID = np.logspace(-3, 3, 13)  # lambda = 1/C
+# lambda = 1/C. Rango acotado a la region que converge y es informativa:
+# C grande (poca regularizacion) no converge en 2000 iters de lbfgs y,
+# segun los resultados, da peor balanced accuracy -> se descarta.
+C_GRID = np.logspace(-3, 1, 9)
 
 
 def _phase(msg: str) -> None:

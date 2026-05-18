@@ -40,6 +40,10 @@ def make_logreg(cfg: Config, C: float = 1.0) -> Pipeline:
                     C=C,
                     solver="lbfgs",
                     max_iter=2000,
+                    # tol 1e-4 -> 1e-3: lbfgs converge mucho antes sin
+                    # cambio apreciable de accuracy (<< std entre folds);
+                    # evita el ConvergenceWarning a 2000 iters.
+                    tol=1e-3,
                     class_weight="balanced",
                     random_state=cfg.random_state,
                 ),
