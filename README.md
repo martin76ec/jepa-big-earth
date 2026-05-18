@@ -1,177 +1,129 @@
-# Clasificación de cobertura terrestre en BigEarthNet-S2 con JEPA + clasificador clásico
+# BigEarthNet-S2 + JEPA + clasificador clásico
 
-## 1. Introducción
+## Introducción
 
-La clasificación automática de cobertura terrestre a partir de imágenes
-satelitales Sentinel-2 es clave para el monitoreo ambiental, la
-planificación territorial y la detección de cambios de uso de suelo.
-Etiquetar manualmente parches satelitales es costoso, por lo que interesa
-aprovechar representaciones aprendidas de forma auto-supervisada.
+La clasificación de cobertura terrestre a partir de imágenes Sentinel-2
+es clave para el monitoreo ambiental, pero etiquetar parches es costoso;
+interesa reutilizar **representaciones auto-supervisadas**. Este proyecto
+usa **I-JEPA ViT-H/14 (Meta AI) congelado** como extractor de
+características sobre BigEarthNet-S2 (`s2-rgb`) y, sobre esos *embeddings*
+(1280-D), monta clasificadores clásicos para distinguir las **5 clases
+más frecuentes**. Se **optimiza** la Regresión Logística L2 y se
+**compara estadísticamente** contra una SVM RBF (Wilcoxon).
 
-Este proyecto usa **JEPA** (*Joint-Embedding Predictive Architecture*,
-variante I-JEPA preentrenada por Meta AI) como extractor de
-características congelado sobre el dataset
-[BigEarthNet-S2-v1.0](https://huggingface.co/datasets/danielz01/BigEarthNet-S2-v1.0)
-(configuración `s2-rgb`), y sobre esos *embeddings* monta clasificadores
-clásicos para distinguir las **5 clases más frecuentes**. Se compara
-estadísticamente una **Regresión Logística Regularizada** contra una
-**SVM con kernel RBF**.
+El proyecto se organiza siguiendo el **score table** del rubric: cada
+ítem está cubierto y se indica dónde verlo (este documento resume
+cumplimiento + resultados; la arquitectura y el *setup* están en
+[`ARCHITECTURE.md`](ARCHITECTURE.md)).
 
-## 2. Arquitectura y proceso
+| Ítem del rubric | Pts | Dónde |
+|---|:--:|---|
+| EDA | — | §1 · `eda.py` · `outputs/eda/` |
+| Representación / Feature Extraction (JEPA) | — | [ARCHITECTURE](ARCHITECTURE.md) §2.1 · `features.py` |
+| Feature Selection (omitida, justificada) | — | `models.py` · `config.select_k_best` |
+| Pipelines (`sklearn.Pipeline`) | — | `models.py` |
+| Técnica 1 — Regresión Logística L2 (obligatoria) | — | `models.make_logreg` |
+| Optimización de hiperparámetros | **3.5** | §2 · `tuning.py` |
+| Comparación estadística (2 técnicas + Wilcoxon) | **3.5** | §3 · `compare.py` |
+| Visualización (t-SNE) | **1** | §4 · `viz.py` |
+| Referencias (IEEE) | — | §5 |
 
-Pipeline de un solo comando, con caché por etapa:
+## 1. Datos y EDA
 
-```
-BigEarthNet-S2 (streaming) ─▶ EDA + subconjunto balanceado (caché)
-        │
-        ▼
-  I-JEPA ViT-H/14 (CONGELADO) ─▶ embeddings 1280-D (caché)
-        │
-        ▼
-  Pipeline sklearn:  StandardScaler ─▶ [SelectKBest opc.] ─▶ clasificador
-        │
-        ├─▶ Optimización de hiperparámetros (GridSearchCV)
-        └─▶ Evaluación: CV repetida + Wilcoxon (LogReg vs SVM) + t-SNE
-```
+- Parches escaneados: **20 000**; etiquetas CLC únicas observadas: **35**;
+  promedio **2.69** etiquetas/parche (dataset multi-etiqueta).
+- Top-5 (orden de frecuencia): **Pastures** (14 236), **Non-irrigated
+  arable land** (8 737), **Coniferous forest** (4 635), **Sea and ocean**
+  (3 302), **Mixed forest** (3 276).
+- Subconjunto de modelado: **10 000** imágenes, **balanceado a 2 000/clase**
+  (asignación *greedy* sobre parches con ≥1 etiqueta del top-5).
+- Métrica: **balanced accuracy** (las clases del problema se equilibran;
+  evita inflar el resultado por la clase mayoritaria).
 
-### 2.1 Representación
+| Frecuencia de etiquetas (top-5 resaltado) | Etiquetas por parche |
+|---|---|
+| ![Frecuencia de etiquetas](report_assets/label_frequency.png) | ![Cardinalidad](report_assets/label_cardinality.png) |
 
-- **Datos** (`scan_labels`): pasada en *streaming* leyendo solo `labels`
-  para el EDA y elegir el **top-5** de clases (dataset multi-etiqueta,
-  43 clases CLC). El escaneo se cachea.
-- **Subconjunto balanceado** (`build_subset`): BigEarthNet es
-  multi-etiqueta (~2.7 etiquetas/parche); exigir parches con una *única*
-  etiqueta del top-5 degeneraba el subconjunto. En su lugar se toma
-  cualquier parche con ≥1 etiqueta del top-5 y se le asigna la clase
-  **menos representada** hasta el momento (balanceo *greedy*,
-  determinista). Tope `per_class = 2000` → ≈10 000 imágenes, 5 clases
-  balanceadas; caché invalidada por `per_class` y versión de
-  construcción.
-- **Extracción de características (JEPA)**: I-JEPA ViT-H/14 **congelado**;
-  *embedding* por imagen = *mean pooling* de los tokens de parche
-  (vector **1280-D**). Es *transfer learning*, por lo que **Feature
-  Selection** puede omitirse (`SelectKBest` queda opcional). El encoder
-  se aplica **una sola vez**; *embeddings* cacheados (fp16 en CUDA,
-  *checkpoint* reanudable).
-- **Pipeline** (`sklearn.Pipeline`): `StandardScaler` → [`SelectKBest`
-  opc.] → clasificador. JEPA queda **fuera del bucle de CV** (congelado,
-  sin fuga de información).
+| Balance del subconjunto (2 000/clase) | Ejemplos RGB por clase |
+|---|---|
+| ![Balance del subconjunto](report_assets/subset_balance.png) | ![Muestras](report_assets/sample_grid.png) |
 
-### 2.2 Optimización
+## 2. Optimización de hiperparámetros (Regresión Logística L2)
 
-- **Hiperparámetro**: `C` (= 1/λ) de la Regresión Logística **L2**, con
-  `GridSearchCV` + `RepeatedStratifiedKFold` **10×3** y métrica
-  **balanced accuracy** (clases balanceadas; evita el sesgo de accuracy).
-- **Malla**: `C ∈ logspace(-3, 1, 9)`, acotada a la región que converge
-  (`lbfgs`, `tol=1e-3`); los `C` grandes (poca regularización) no
-  convergían y daban peor resultado.
-- **Diagnóstico**: la **curva de validación** se deriva de
-  `grid.cv_results_` (sin reejecutar *fits*) y se genera la **curva de
-  aprendizaje** (sesgo/varianza).
+- Mejor `C = 0.01` → **λ = 100** (regularización fuerte).
+- **Balanced accuracy CV (mejor): 0.733**.
+- Curva de validación: el máximo está en **λ = 100** (0.733) y el
+  rendimiento **decae de forma monótona al reducir λ** (`C` grande, poca
+  regularización), hasta ~0.686 en `C = 10` — una caída de **~4.7 pp**
+  dentro del rango explorado, por sobreajuste en el espacio de 1280
+  dimensiones. El lado de regularización muy fuerte es casi plano
+  (~0.721 en λ=1000, solo ~1 pp bajo el óptimo): **predomina la
+  varianza**, la regularización es imprescindible.
 
-### 2.3 Evaluación
+| Curva de validación (λ vs balanced acc.) | Curva de aprendizaje |
+|---|---|
+| ![Curva de validación](report_assets/validation_curve.png) | ![Curva de aprendizaje](report_assets/learning_curve.png) |
 
-- **Dos técnicas**: Regresión Logística **L2** vs **SVM RBF**, con
-  *repeated k-fold CV* **10×3** sobre **los mismos *splits***.
-- **Test estadístico**: **Wilcoxon** pareado (*signed-rank*) sobre las
-  *balanced accuracy* por *fold*, α = 0.05 (H₀: sin diferencia).
-- **Visualización**: proyección **t-SNE** 2D de los *embeddings*
-  coloreada por clase (separabilidad cualitativa).
+## 3. Comparación estadística (LogReg L2 vs SVM RBF)
 
-Resultados analizados en [`REPORT.md`](REPORT.md).
+| Modelo | Balanced accuracy (media ± std, 10×3 CV) |
+|---|:--:|
+| Regresión Logística L2 | 0.733 ± 0.015 |
+| **SVM RBF** | **0.741 ± 0.015** |
 
-## 3. Instalación
+- Wilcoxon pareado (mismos *splits*): estadístico = 59.0,
+  **p = 0.00061 < 0.05**.
+- **Veredicto: se rechaza H₀** — diferencia estadísticamente
+  significativa; **la SVM RBF es mejor** que la Regresión Logística L2
+  sobre estos *embeddings*. El margen es pequeño (~0.8 pp) pero
+  consistente entre *folds* (std ±0.015).
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-```
+![Comparación de modelos (boxplot por fold)](report_assets/model_comparison.png)
 
-**Servidor con GPU CUDA:** instalar primero el wheel CUDA de PyTorch
-para no quedarse con el build `+cpu` (silenciosamente lento y agota la
-RAM del host). El driver es retrocompatible: la versión que reporta
-`nvidia-smi` (p. ej. CUDA 12.8) es el máximo soportado, no un requisito
-exacto; `cu124` funciona en drivers ≥ 12.4.
+## 4. Conclusiones
 
-```bash
-pip uninstall -y torch torchvision
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install -r requirements.txt   # después del torch CUDA
-python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
-# OK = versión SIN sufijo '+cpu' y True. En tiempo de encode, la línea
-# '[jepa] ... -> device=cuda' lo confirma.
-```
+- Los *embeddings* I-JEPA congelados aportan **señal de clase real pero
+  moderada**: ~0.73–0.74 balanced accuracy en 5 clases (azar = 0.20).
+- La **regularización fuerte es imprescindible**: el óptimo está en
+  **λ = 100** y, al debilitarla, el modelo pierde **~4.7 pp** por
+  sobreajuste en el espacio de 1280 dimensiones (predomina la varianza;
+  el subajuste por exceso de regularización es leve, ~1 pp).
+- La **SVM RBF supera de forma estadísticamente significativa** a la
+  Regresión Logística L2 (Wilcoxon p≈6×10⁻⁴), aunque por **margen
+  pequeño** (~0.8 pp): el espacio de *embeddings* **no es perfectamente
+  separable de forma lineal** y un *kernel* no lineal aporta una mejora
+  pequeña pero real. Coherente con el solapamiento parcial entre clases
+  observable en el t-SNE.
 
-El dataset es `gated: auto`. Crear un token en
-<https://huggingface.co/settings/tokens>, visitar una vez la página del
-dataset para aceptar las condiciones, y exportar el token:
+![t-SNE de los embeddings JEPA coloreado por clase](report_assets/tsne.png)
 
-```bash
-cp .env.example .env        # editar HF_TOKEN
-export HF_TOKEN=hf_xxx       # o: huggingface-cli login
-```
-
-## 4. Uso
-
-```bash
-python main.py all        # pipeline completo (EDA → features → tune → compare → tsne)
-python main.py eda        # solo EDA + construcción del subconjunto
-python main.py features   # extrae y cachea embeddings JEPA
-python main.py tune       # optimización de hiperparámetros
-python main.py compare    # comparación estadística de 2 técnicas
-python main.py tsne       # visualización t-SNE
-```
-
-Resultados en `outputs/`: `eda/`, `figures/`, `metrics/` y la caché en
-`cache/` (subconjunto y *embeddings*, para no re-descargar).
-
-Parámetros (tamaño de muestra, modelo JEPA, *folds*, etc.) en
-`src/ben_jepa/config.py`. En Mac sin GPU CUDA se usa Apple MPS si está
-disponible; el costo de JEPA se paga una sola vez gracias a la caché.
-
-## 5. EDA
-
-Generado por `python main.py eda` en `outputs/eda/`:
-
-- `label_frequency.png` — frecuencia de etiquetas (top-5 resaltado).
-- `label_cardinality.png` — etiquetas por parche (naturaleza multi-etiqueta).
-- `subset_balance.png` — tamaño del subconjunto por clase.
-- `sample_grid.png` — ejemplos RGB por clase.
-- `eda_summary.json` — estadísticas numéricas.
-
-## 6. Resultados
-
-Tras ejecutar el pipeline, los valores quedan en:
-
-- `outputs/metrics/tuning.json` — mejor λ, balanced accuracy de CV.
-- `outputs/metrics/comparison.json` — medias, p-valor de Wilcoxon, veredicto.
-- `outputs/figures/` — `validation_curve.png`, `learning_curve.png`,
-  `model_comparison.png`, `tsne.png`.
-
-## 7. Conclusiones
-
-Se completa tras ejecutar el pipeline, discutiendo: (a) separabilidad de
-las clases en el espacio JEPA según t-SNE, (b) λ óptimo y diagnóstico
-sesgo/varianza de las curvas, y (c) si la diferencia LogReg vs SVM es
-estadísticamente significativa según Wilcoxon.
-
-## 8. Referencias (IEEE)
+## 5. Referencias (IEEE)
 
 [1] M. Assran *et al.*, "Self-Supervised Learning from Images with a
-Joint-Embedding Predictive Architecture (I-JEPA)," *CVPR*, 2023.
+Joint-Embedding Predictive Architecture (I-JEPA)," *Proc. IEEE/CVF CVPR*,
+2023.
 
 [2] G. Sumbul, M. Charfuelan, B. Demir, and V. Markl, "BigEarthNet: A
 Large-Scale Benchmark Archive for Remote Sensing Image Understanding,"
-*IEEE IGARSS*, 2019.
+*Proc. IEEE IGARSS*, 2019.
 
 [3] F. Pedregosa *et al.*, "Scikit-learn: Machine Learning in Python,"
-*JMLR*, vol. 12, pp. 2825–2830, 2011.
+*J. Mach. Learn. Res.*, vol. 12, pp. 2825–2830, 2011.
 
 [4] L. van der Maaten and G. Hinton, "Visualizing Data using t-SNE,"
-*JMLR*, vol. 9, pp. 2579–2605, 2008.
+*J. Mach. Learn. Res.*, vol. 9, pp. 2579–2605, 2008.
 
 [5] F. Wilcoxon, "Individual Comparisons by Ranking Methods,"
 *Biometrics Bulletin*, vol. 1, no. 6, pp. 80–83, 1945.
 
-[6] Anthropic, "Claude Code," herramienta de asistencia para la
+[6] Anthropic, "Claude Code," herramienta de asistencia usada para la
 generación del código base (ver nota de transparencia en `main.py`).
+
+---
+*Resultados generados por `python main.py all`
+(`outputs/metrics/{tuning,comparison}.json`, `outputs/eda/eda_summary.json`).
+Métrica: balanced accuracy (subconjunto balanceado a 2 000/clase).
+Malla de 9 valores de `C` (`logspace(-3, 1, 9)`). La optimización de
+hiperparámetros, la comparación estadística (Wilcoxon) y la
+visualización t-SNE corresponden a ítems del rubric implementados en
+`tuning.py`, `compare.py` y `viz.py`.*
