@@ -30,11 +30,11 @@ como extractor de características y clasificadores clásicos por encima.
 - **Balanced accuracy CV (mejor): 0.733**.
 - Curva de validación: el máximo está en **λ = 100** (0.733) y el
   rendimiento **decae de forma monótona al reducir λ** (`C` grande, poca
-  regularización), hasta ~0.657 en `C = 1000` — una caída de **~7.6 pp**
-  por sobreajuste en el espacio de 1280 dimensiones. El lado de
-  regularización muy fuerte es casi plano (~0.721 en λ=1000, solo ~1 pp
-  bajo el óptimo): **predomina la varianza**, la regularización es
-  imprescindible.
+  regularización), hasta ~0.686 en `C = 10` — una caída de **~4.7 pp**
+  dentro del rango explorado, por sobreajuste en el espacio de 1280
+  dimensiones. El lado de regularización muy fuerte es casi plano
+  (~0.721 en λ=1000, solo ~1 pp bajo el óptimo): **predomina la
+  varianza**, la regularización es imprescindible.
 
 | Curva de validación (λ vs balanced acc.) | Curva de aprendizaje |
 |---|---|
@@ -47,8 +47,8 @@ como extractor de características y clasificadores clásicos por encima.
 | Regresión Logística L2 | 0.733 ± 0.015 |
 | **SVM RBF** | **0.741 ± 0.015** |
 
-- Wilcoxon pareado (mismos *splits*): estadístico = 54.5,
-  **p = 0.00042 < 0.05**.
+- Wilcoxon pareado (mismos *splits*): estadístico = 59.0,
+  **p = 0.00061 < 0.05**.
 - **Veredicto: se rechaza H₀** — diferencia estadísticamente
   significativa; **la SVM RBF es mejor** que la Regresión Logística L2
   sobre estos *embeddings*. El margen es pequeño (~0.8 pp) pero
@@ -61,11 +61,11 @@ como extractor de características y clasificadores clásicos por encima.
 - Los *embeddings* I-JEPA congelados aportan **señal de clase real pero
   moderada**: ~0.73–0.74 balanced accuracy en 5 clases (azar = 0.20).
 - La **regularización fuerte es imprescindible**: el óptimo está en
-  **λ = 100** y, al debilitarla, el modelo pierde **~7.6 pp** por
+  **λ = 100** y, al debilitarla, el modelo pierde **~4.7 pp** por
   sobreajuste en el espacio de 1280 dimensiones (predomina la varianza;
   el subajuste por exceso de regularización es leve, ~1 pp).
 - La **SVM RBF supera de forma estadísticamente significativa** a la
-  Regresión Logística L2 (Wilcoxon p≈4×10⁻⁴), aunque por **margen
+  Regresión Logística L2 (Wilcoxon p≈6×10⁻⁴), aunque por **margen
   pequeño** (~0.8 pp): el espacio de *embeddings* **no es perfectamente
   separable de forma lineal** y un *kernel* no lineal aporta una mejora
   pequeña pero real. Coherente con el solapamiento parcial entre clases
@@ -98,9 +98,8 @@ generación del código base (ver nota de transparencia en `main.py`).
 ---
 *Resultados generados por `python main.py all`
 (`outputs/metrics/{tuning,comparison}.json`, `outputs/eda/eda_summary.json`).
-Métrica: balanced accuracy (subconjunto balanceado a 2 000/clase). La
-optimización de hiperparámetros, la comparación estadística (Wilcoxon)
-y la visualización t-SNE corresponden a ítems del rubric implementados
-en `tuning.py`, `compare.py` y `viz.py`. Esta corrida usó la malla de
-13 valores de `C`; la versión vigente del código la acota a 9 (sin
-cambiar el óptimo λ=100 ni el veredicto).*
+Métrica: balanced accuracy (subconjunto balanceado a 2 000/clase).
+Malla de 9 valores de `C` (`logspace(-3, 1, 9)`). La optimización de
+hiperparámetros, la comparación estadística (Wilcoxon) y la
+visualización t-SNE corresponden a ítems del rubric implementados en
+`tuning.py`, `compare.py` y `viz.py`.*

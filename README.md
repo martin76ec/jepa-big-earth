@@ -17,39 +17,68 @@ clásicos para distinguir las **5 clases más frecuentes**. Se compara
 estadísticamente una **Regresión Logística Regularizada** contra una
 **SVM con kernel RBF**.
 
-## 2. Metodología
+## 2. Arquitectura y proceso
 
-1. **Escaneo de etiquetas** (`scan_labels`): pasada en *streaming* leyendo
-   solo la columna `labels` para el EDA y para elegir las 5 clases más
-   frecuentes (dataset multi-etiqueta de 43 clases CLC).
-2. **Subconjunto multiclase balanceado**: BigEarthNet es multi-etiqueta
-   (~3 etiquetas/parche), por lo que exigir parches con una **única**
-   etiqueta del top-5 dejaba clases casi vacías (subconjunto degenerado).
-   En su lugar se toma cualquier parche con ≥1 etiqueta del top-5 y se le
-   asigna la clase del top-5 **menos representada** hasta el momento
-   (balanceo *greedy*, determinista), formando un problema de 5 clases
-   balanceado, con un tope `per_class` (cada clase llega a
-   `min(disponibles, per_class)`). Por defecto `per_class = 2000`
-   (≈10 000 imágenes; la clase más rara puede quedar por debajo). El
-   encoder JEPA se aplica una sola vez sobre ese subconjunto y los
-   *embeddings* se cachean. Como las clases quedan desbalanceadas, la
-   métrica de tuning/comparación es **balanced accuracy** (no accuracy).
-3. **Feature Extraction (JEPA)**: I-JEPA ViT-H/14 congelado; *embedding*
-   por imagen = *mean pooling* de los tokens de parche. Es *transfer
-   learning* sobre imágenes, por lo que —según el rubric— el paso de
-   **Feature Selection** puede omitirse; queda disponible como filtro
-   opcional (`SelectKBest`, `config.select_k_best`).
-4. **Pipelines** (`sklearn.Pipeline`): `StandardScaler` → [filtro opc.] →
-   clasificador.
-5. **Optimización de hiperparámetros**: `GridSearchCV` sobre `C` (=1/λ)
-   con `RepeatedStratifiedKFold`; se generan curva de validación y curva
-   de aprendizaje.
-6. **Comparación estadística**: *repeated k-fold CV* (10×3 por defecto,
-   mismos *splits* para ambos modelos) + test pareado de **Wilcoxon**
-   (α = 0.05). La CV se hace **solo sobre el clasificador** (scaler +
-   modelo) sobre los *embeddings* ya extraídos: JEPA queda fuera del
-   bucle de CV (encoder congelado, sin fuga de información).
-7. **t-SNE**: proyección 2D de los *embeddings* coloreada por clase.
+Pipeline de un solo comando, con caché por etapa:
+
+```
+BigEarthNet-S2 (streaming) ─▶ EDA + subconjunto balanceado (caché)
+        │
+        ▼
+  I-JEPA ViT-H/14 (CONGELADO) ─▶ embeddings 1280-D (caché)
+        │
+        ▼
+  Pipeline sklearn:  StandardScaler ─▶ [SelectKBest opc.] ─▶ clasificador
+        │
+        ├─▶ Optimización de hiperparámetros (GridSearchCV)
+        └─▶ Evaluación: CV repetida + Wilcoxon (LogReg vs SVM) + t-SNE
+```
+
+### 2.1 Representación
+
+- **Datos** (`scan_labels`): pasada en *streaming* leyendo solo `labels`
+  para el EDA y elegir el **top-5** de clases (dataset multi-etiqueta,
+  43 clases CLC). El escaneo se cachea.
+- **Subconjunto balanceado** (`build_subset`): BigEarthNet es
+  multi-etiqueta (~2.7 etiquetas/parche); exigir parches con una *única*
+  etiqueta del top-5 degeneraba el subconjunto. En su lugar se toma
+  cualquier parche con ≥1 etiqueta del top-5 y se le asigna la clase
+  **menos representada** hasta el momento (balanceo *greedy*,
+  determinista). Tope `per_class = 2000` → ≈10 000 imágenes, 5 clases
+  balanceadas; caché invalidada por `per_class` y versión de
+  construcción.
+- **Extracción de características (JEPA)**: I-JEPA ViT-H/14 **congelado**;
+  *embedding* por imagen = *mean pooling* de los tokens de parche
+  (vector **1280-D**). Es *transfer learning*, por lo que **Feature
+  Selection** puede omitirse (`SelectKBest` queda opcional). El encoder
+  se aplica **una sola vez**; *embeddings* cacheados (fp16 en CUDA,
+  *checkpoint* reanudable).
+- **Pipeline** (`sklearn.Pipeline`): `StandardScaler` → [`SelectKBest`
+  opc.] → clasificador. JEPA queda **fuera del bucle de CV** (congelado,
+  sin fuga de información).
+
+### 2.2 Optimización
+
+- **Hiperparámetro**: `C` (= 1/λ) de la Regresión Logística **L2**, con
+  `GridSearchCV` + `RepeatedStratifiedKFold` **10×3** y métrica
+  **balanced accuracy** (clases balanceadas; evita el sesgo de accuracy).
+- **Malla**: `C ∈ logspace(-3, 1, 9)`, acotada a la región que converge
+  (`lbfgs`, `tol=1e-3`); los `C` grandes (poca regularización) no
+  convergían y daban peor resultado.
+- **Diagnóstico**: la **curva de validación** se deriva de
+  `grid.cv_results_` (sin reejecutar *fits*) y se genera la **curva de
+  aprendizaje** (sesgo/varianza).
+
+### 2.3 Evaluación
+
+- **Dos técnicas**: Regresión Logística **L2** vs **SVM RBF**, con
+  *repeated k-fold CV* **10×3** sobre **los mismos *splits***.
+- **Test estadístico**: **Wilcoxon** pareado (*signed-rank*) sobre las
+  *balanced accuracy* por *fold*, α = 0.05 (H₀: sin diferencia).
+- **Visualización**: proyección **t-SNE** 2D de los *embeddings*
+  coloreada por clase (separabilidad cualitativa).
+
+Resultados analizados en [`REPORT.md`](REPORT.md).
 
 ## 3. Instalación
 
@@ -114,7 +143,7 @@ Generado por `python main.py eda` en `outputs/eda/`:
 
 Tras ejecutar el pipeline, los valores quedan en:
 
-- `outputs/metrics/tuning.json` — mejor λ, accuracy de CV.
+- `outputs/metrics/tuning.json` — mejor λ, balanced accuracy de CV.
 - `outputs/metrics/comparison.json` — medias, p-valor de Wilcoxon, veredicto.
 - `outputs/figures/` — `validation_curve.png`, `learning_curve.png`,
   `model_comparison.png`, `tsne.png`.
