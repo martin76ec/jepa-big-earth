@@ -1,0 +1,17 @@
+# Núcleo de datos / ML
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.4
+scipy>=1.11
+matplotlib>=3.8
+
+# Extracción de características con JEPA (transfer learning)
+torch>=2.4
+transformers>=4.46
+pillow>=10.0
+
+# Acceso al dataset BigEarthNet-S2 en Hugging Face
+datasets>=2.20
+huggingface_hub>=0.24
+tqdm>=4.66
+python-dotenv>=1.0
