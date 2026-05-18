@@ -87,10 +87,14 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
 
     # --- Curva de aprendizaje (con el mejor C) ---
     _phase(f"3/3 learning_curve (best C={best_C:.3g})")
+    # shuffle=True: sin esto learning_curve toma los PRIMEROS k indices
+    # del fold (agrupados por clase) y los train_sizes chicos quedan de
+    # una sola clase -> "needs samples of at least 2 classes".
     sizes, tr, va = learning_curve(
         make_logreg(cfg, C=best_C), X, y,
         train_sizes=np.linspace(0.1, 1.0, 8),
         scoring="accuracy", cv=cv, n_jobs=cfg.n_jobs, verbose=1,
+        shuffle=True, random_state=cfg.random_state,
     )
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(sizes, tr.mean(1), "o-", label="Entrenamiento")
