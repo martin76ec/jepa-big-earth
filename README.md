@@ -11,23 +11,6 @@ características sobre BigEarthNet-S2 (`s2-rgb`) y, sobre esos *embeddings*
 más frecuentes**. Se **optimiza** la Regresión Logística L2 y se
 **compara estadísticamente** contra una SVM RBF (Wilcoxon).
 
-El proyecto se organiza siguiendo el **score table** del rubric: cada
-ítem está cubierto y se indica dónde verlo (este documento resume
-cumplimiento + resultados; la arquitectura y el *setup* están en
-[`ARCHITECTURE.md`](ARCHITECTURE.md)).
-
-| Ítem del rubric | Pts | Dónde |
-|---|:--:|---|
-| EDA | — | §1 · `eda.py` · `outputs/eda/` |
-| Representación / Feature Extraction (JEPA) | — | [ARCHITECTURE](ARCHITECTURE.md) §2.1 · `features.py` |
-| Feature Selection (omitida, justificada) | — | `models.py` · `config.select_k_best` |
-| Pipelines (`sklearn.Pipeline`) | — | `models.py` |
-| Técnica 1 — Regresión Logística L2 (obligatoria) | — | `models.make_logreg` |
-| Optimización de hiperparámetros | **3.5** | §2 · `tuning.py` |
-| Comparación estadística (2 técnicas + Wilcoxon) | **3.5** | §3 · `compare.py` |
-| Visualización (t-SNE) | **1** | §4 · `viz.py` |
-| Referencias (IEEE) | — | §5 |
-
 ## 1. Datos y EDA
 
 - Parches escaneados: **20 000**; etiquetas CLC únicas observadas: **35**;
@@ -120,7 +103,7 @@ Large-Scale Benchmark Archive for Remote Sensing Image Understanding,"
 generación del código base (ver nota de transparencia en `main.py`).
 
 ---
-*Resultados generados por `python main.py all`
+*Resultados generados por `python main.py all` (o make run-all)
 (`outputs/metrics/{tuning,comparison}.json`, `outputs/eda/eda_summary.json`).
 Métrica: balanced accuracy (subconjunto balanceado a 2 000/clase).
 Malla de 9 valores de `C` (`logspace(-3, 1, 9)`). La optimización de
