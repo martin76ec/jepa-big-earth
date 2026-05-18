@@ -22,7 +22,6 @@ from sklearn.model_selection import (
     GridSearchCV,
     RepeatedStratifiedKFold,
     learning_curve,
-    validation_curve,
 )
 
 from .config import Config
@@ -49,7 +48,7 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
     pipe = make_logreg(cfg)
 
     _phase(
-        f"1/3 GridSearchCV: {len(C_GRID)} C x "
+        f"1/2 GridSearchCV: {len(C_GRID)} C x "
         f"{cfg.cv_splits}x{cfg.tune_repeats} folds"
     )
     grid = GridSearchCV(
@@ -59,26 +58,30 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
         cv=cv,
         n_jobs=cfg.n_jobs,
         refit=True,
+        return_train_score=True,  # para la curva de validacion (sin reejecutar)
         verbose=2,
     )
     grid.fit(X, y)
     best_C = grid.best_params_["clf__C"]
 
     # --- Curva de validacion (lambda = 1/C) ---
-    _phase("2/3 validation_curve")
-    train_sc, val_sc = validation_curve(
-        make_logreg(cfg), X, y,
-        param_name="clf__C", param_range=C_GRID,
-        scoring="balanced_accuracy", cv=cv, n_jobs=cfg.n_jobs, verbose=1,
-    )
+    # Derivada de grid.cv_results_: GridSearchCV YA evaluo train/val por
+    # cada C sobre el MISMO CV, asi que no hace falta reejecutar
+    # validation_curve (eran ~270 fits identicos). Resultado: identico.
+    res = grid.cv_results_
+    order = np.argsort(np.asarray(res["param_clf__C"], dtype=float))
+    train_mean = res["mean_train_score"][order]
+    train_std = res["std_train_score"][order]
+    val_mean = res["mean_test_score"][order]
+    val_std = res["std_test_score"][order]
     lambdas = 1.0 / C_GRID
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.semilogx(lambdas, train_sc.mean(1), "o-", label="Entrenamiento")
-    ax.fill_between(lambdas, train_sc.mean(1) - train_sc.std(1),
-                    train_sc.mean(1) + train_sc.std(1), alpha=0.15)
-    ax.semilogx(lambdas, val_sc.mean(1), "o-", label="Validacion")
-    ax.fill_between(lambdas, val_sc.mean(1) - val_sc.std(1),
-                    val_sc.mean(1) + val_sc.std(1), alpha=0.15)
+    ax.semilogx(lambdas, train_mean, "o-", label="Entrenamiento")
+    ax.fill_between(lambdas, train_mean - train_std,
+                    train_mean + train_std, alpha=0.15)
+    ax.semilogx(lambdas, val_mean, "o-", label="Validacion")
+    ax.fill_between(lambdas, val_mean - val_std,
+                    val_mean + val_std, alpha=0.15)
     ax.axvline(1.0 / best_C, color="red", ls="--", label=f"lambda* = {1.0/best_C:.3g}")
     ax.set_xlabel("lambda (1/C)")
     ax.set_ylabel("Balanced accuracy")
@@ -89,7 +92,7 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
     plt.close(fig)
 
     # --- Curva de aprendizaje (con el mejor C) ---
-    _phase(f"3/3 learning_curve (best C={best_C:.3g})")
+    _phase(f"2/2 learning_curve (best C={best_C:.3g})")
     # shuffle=True: sin esto learning_curve toma los PRIMEROS k indices
     # del fold (agrupados por clase) y los train_sizes chicos quedan de
     # una sola clase -> "needs samples of at least 2 classes".
@@ -117,7 +120,7 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
         "best_lambda": float(1.0 / best_C),
         "best_cv_bal_acc": float(grid.best_score_),
         "C_grid": [float(c) for c in C_GRID],
-        "val_bal_acc_mean": [float(v) for v in val_sc.mean(1)],
+        "val_bal_acc_mean": [float(v) for v in val_mean],
     }
     (cfg.metrics_dir / "tuning.json").write_text(json.dumps(result, indent=2))
     return result
