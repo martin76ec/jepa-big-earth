@@ -46,6 +46,21 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+**Servidor con GPU CUDA:** instalar primero el wheel CUDA de PyTorch
+para no quedarse con el build `+cpu` (silenciosamente lento y agota la
+RAM del host). El driver es retrocompatible: la versión que reporta
+`nvidia-smi` (p. ej. CUDA 12.8) es el máximo soportado, no un requisito
+exacto; `cu124` funciona en drivers ≥ 12.4.
+
+```bash
+pip uninstall -y torch torchvision
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install -r requirements.txt   # después del torch CUDA
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+# OK = versión SIN sufijo '+cpu' y True. En tiempo de encode, la línea
+# '[jepa] ... -> device=cuda' lo confirma.
+```
+
 El dataset es `gated: auto`. Crear un token en
 <https://huggingface.co/settings/tokens>, visitar una vez la página del
 dataset para aceptar las condiciones, y exportar el token:

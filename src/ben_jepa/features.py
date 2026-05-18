@@ -11,6 +11,8 @@ de "Feature Selection"; de todos modos se deja como filtro opcional en
 """
 from __future__ import annotations
 
+import sys
+
 import numpy as np
 from tqdm import tqdm
 
@@ -18,13 +20,45 @@ from .config import Config
 
 
 def _device():
+    """Resuelve el device e imprime un reporte claro en stderr.
+
+    Asi se sabe SIN DUDAS si JEPA corre en CUDA. Si cae a CPU se emite
+    una advertencia bien visible (CPU es lento y agota la RAM del host).
+    """
     import torch
 
-    if torch.backends.mps.is_available():
-        return "mps"
-    if torch.cuda.is_available():
-        return "cuda"
-    return "cpu"
+    cuda_ok = torch.cuda.is_available()
+    mps_ok = torch.backends.mps.is_available()
+    if mps_ok:
+        device = "mps"
+    elif cuda_ok:
+        device = "cuda"
+    else:
+        device = "cpu"
+
+    print(
+        f"[jepa] torch={torch.__version__} "
+        f"torch.version.cuda={torch.version.cuda} "
+        f"cuda_available={cuda_ok} -> device={device}",
+        file=sys.stderr,
+        flush=True,
+    )
+    if device == "cuda":
+        print(
+            f"[jepa] >>> USANDO CUDA: GPU 0 = "
+            f"{torch.cuda.get_device_name(0)} <<<",
+            file=sys.stderr,
+            flush=True,
+        )
+    else:
+        print(
+            f"[jepa] *** ADVERTENCIA: NO se usa CUDA (device={device}). "
+            f"JEPA correra lento y puede agotar la RAM del host. "
+            f"Revisa la instalacion de torch (wheel +cpu?) y nvidia-smi. ***",
+            file=sys.stderr,
+            flush=True,
+        )
+    return device
 
 
 class JepaEncoder:
