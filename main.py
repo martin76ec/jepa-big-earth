@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 
 from src.ben_jepa.config import CFG
@@ -32,6 +33,10 @@ from src.ben_jepa.data import (
     top_k_classes,
 )
 from src.ben_jepa.features import embeddings_cached, get_embeddings
+
+# Forzar recomputo de embeddings JEPA aunque exista la cache. Lo setea
+# main() desde --force-encode o la env var FORCE_ENCODE.
+FORCE_ENCODE = False
 
 
 def _resolve_classes():
@@ -65,11 +70,11 @@ def cmd_features():
 
 def _embeddings():
     """Embeddings JEPA, usando caches para no re-descargar ni recomputar."""
-    if embeddings_cached(CFG):
+    if not FORCE_ENCODE and embeddings_cached(CFG):
         return get_embeddings(CFG)
     classes = _resolve_classes()
     X, y, classes = build_subset(CFG, classes)
-    return get_embeddings(CFG, X, y, classes)
+    return get_embeddings(CFG, X, y, classes, force=FORCE_ENCODE)
 
 
 def cmd_tune():
@@ -107,7 +112,13 @@ def cmd_all():
 
     label_counts, cardinalities, classes, X, y = _load_scan_and_subset()
     run_eda(CFG, label_counts, cardinalities, classes, X, y)
-    emb, y, classes = get_embeddings(CFG, X, y, classes)
+    emb, y, classes = get_embeddings(CFG, X, y, classes, force=FORCE_ENCODE)
+    # Libera el subconjunto de imagenes (~0.5 GB) y el escaneo antes de la
+    # fase sklearn (paralela): reduce el pico de RAM que causaba el OOM.
+    del X, label_counts, cardinalities
+    import gc
+
+    gc.collect()
     tune = tune_logreg(CFG, emb, y)
     cmp = compare(CFG, emb, y, best_C=tune["best_C"])
     tsne_plot(CFG, emb, y, classes)
@@ -127,7 +138,16 @@ COMMANDS = {
 def main():
     parser = argparse.ArgumentParser(description="BigEarthNet-S2 + JEPA + clasico")
     parser.add_argument("command", choices=COMMANDS.keys())
+    parser.add_argument(
+        "--force-encode",
+        action="store_true",
+        help="recalcula los embeddings JEPA aunque exista la cache "
+             "(util para verificar que el encode usa CUDA)",
+    )
     args = parser.parse_args()
+    env_force = os.environ.get("FORCE_ENCODE", "").lower() not in ("", "0", "false", "no")
+    global FORCE_ENCODE
+    FORCE_ENCODE = args.force_encode or env_force
     if not CFG.hf_token:
         print(
             "ADVERTENCIA: HF_TOKEN no esta seteado. El dataset es 'gated: auto' "

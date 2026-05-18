@@ -54,7 +54,7 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
         param_grid={"clf__C": C_GRID},
         scoring="accuracy",
         cv=cv,
-        n_jobs=-1,
+        n_jobs=cfg.n_jobs,
         refit=True,
         verbose=2,
     )
@@ -66,7 +66,7 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
     train_sc, val_sc = validation_curve(
         make_logreg(cfg), X, y,
         param_name="clf__C", param_range=C_GRID,
-        scoring="accuracy", cv=cv, n_jobs=-1, verbose=1,
+        scoring="accuracy", cv=cv, n_jobs=cfg.n_jobs, verbose=1,
     )
     lambdas = 1.0 / C_GRID
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -90,7 +90,7 @@ def tune_logreg(cfg: Config, X: np.ndarray, y: np.ndarray) -> dict:
     sizes, tr, va = learning_curve(
         make_logreg(cfg, C=best_C), X, y,
         train_sizes=np.linspace(0.1, 1.0, 8),
-        scoring="accuracy", cv=cv, n_jobs=-1, verbose=1,
+        scoring="accuracy", cv=cv, n_jobs=cfg.n_jobs, verbose=1,
     )
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(sizes, tr.mean(1), "o-", label="Entrenamiento")

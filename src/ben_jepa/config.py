@@ -53,6 +53,11 @@ class Config:
     tune_repeats: int = 3         # optimizacion de hiperparametros (mas barato)
     random_state: int = 42
 
+    # Paralelismo de scikit-learn. n_jobs=-1 (un worker por core) agota la
+    # RAM en servidores con muchos cores / limite de cgroup: se usa un tope
+    # conservador, sobreescribible con la env var N_JOBS (p. ej. N_JOBS=2).
+    n_jobs: int = field(default_factory=lambda: int(os.environ.get("N_JOBS", "4")))
+
     # --- Rutas de salida ---
     out_dir: Path = field(default=OUTPUTS)
 

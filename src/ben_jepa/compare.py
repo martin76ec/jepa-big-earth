@@ -40,8 +40,8 @@ def compare(cfg: Config, X: np.ndarray, y: np.ndarray,
     logreg = make_logreg(cfg, C=best_C if best_C else 1.0)
     svm = make_svm(cfg)
 
-    s_lr = cross_val_score(logreg, X, y, cv=cv, scoring="accuracy", n_jobs=-1)
-    s_sv = cross_val_score(svm, X, y, cv=cv, scoring="accuracy", n_jobs=-1)
+    s_lr = cross_val_score(logreg, X, y, cv=cv, scoring="accuracy", n_jobs=cfg.n_jobs)
+    s_sv = cross_val_score(svm, X, y, cv=cv, scoring="accuracy", n_jobs=cfg.n_jobs)
 
     stat, p = wilcoxon(s_lr, s_sv)
     if p < ALPHA:
