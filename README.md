@@ -19,7 +19,7 @@ más frecuentes**. Se **optimiza** la Regresión Logística L2 y se
   arable land** (8 737), **Coniferous forest** (4 635), **Sea and ocean**
   (3 302), **Mixed forest** (3 276).
 - Subconjunto de modelado: **10 000** imágenes, **balanceado a 2 000/clase**
-  (asignación *greedy* sobre parches con ≥1 etiqueta del top-5).
+  (asignación *greedy* sobre parches con >=1 etiqueta del top-5).
 - Métrica: **balanced accuracy** (las clases del problema se equilibran;
   evita inflar el resultado por la clase mayoritaria).
 
