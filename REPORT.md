@@ -4,21 +4,7 @@ Clasificación de cobertura terrestre sobre las **5 clases más frecuentes**
 de BigEarthNet-S2 (config `s2-rgb`), usando **I-JEPA ViT-H/14 congelado**
 como extractor de características y clasificadores clásicos por encima.
 
-## 1. Tabla de cumplimiento (score table)
-
-| Ítem del rubric | Pts | Cómo se cumple | Evidencia |
-|---|:--:|---|---|
-| EDA | — | `scan_labels` + `run_eda`: frecuencias, cardinalidad, balance, muestras | `outputs/eda/*.png`, `eda_summary.json` |
-| Feature Extraction | — | I-JEPA ViT-H/14 congelado, *mean pooling* de tokens (transfer learning) | `features.py`, `embeddings.npz` |
-| Feature Selection | — | Omitida con justificación (transfer learning sobre imágenes); `SelectKBest` queda opcional | `models.py`, `config.select_k_best` |
-| Pipelines | — | `sklearn.Pipeline`: `StandardScaler → [filtro opc.] → clasificador` | `models.py` |
-| Técnica 1 (obligatoria) | — | Regresión Logística Regularizada **L2** (`l1_ratio=0`) | `models.make_logreg` |
-| Optimización de hiperparámetros | **3.5** | `GridSearchCV` sobre `C`(=1/λ), `RepeatedStratifiedKFold`; curvas de validación y aprendizaje | `tuning.py`, `figures/validation_curve.png`, `learning_curve.png` |
-| Comparación estadística (2 técnicas) | **3.5** | LogReg L2 vs **SVM RBF**, *repeated k-fold* (10×3) + **Wilcoxon** (α=0.05) | `compare.py`, `figures/model_comparison.png` |
-| Visualización | **1** | t-SNE 2D de los *embeddings* coloreado por clase | `figures/tsne.png` |
-| Referencias (IEEE) | — | Sección 4 + nota de transparencia (asistencia LLM) | este documento |
-
-## 2. Datos y EDA
+## 1. Datos y EDA
 
 - Parches escaneados: **20 000**; etiquetas CLC únicas observadas: **35**;
   promedio **2.69** etiquetas/parche (dataset multi-etiqueta).
@@ -38,48 +24,56 @@ como extractor de características y clasificadores clásicos por encima.
 |---|---|
 | ![Balance del subconjunto](report_assets/subset_balance.png) | ![Muestras](report_assets/sample_grid.png) |
 
-## 3. Optimización de hiperparámetros (Regresión Logística L2)
+## 2. Optimización de hiperparámetros (Regresión Logística L2)
 
-- Mejor `C = 3.16e-3` → **λ ≈ 316.2** (regularización fuerte).
-- **Balanced accuracy CV (mejor): 0.791**.
-- Curva de validación: el rendimiento es estable (~0.78–0.79) para
-  `C` pequeño/medio y **cae a ~0.76 con `C` grande** (poca
-  regularización) → el óptimo en λ alto indica que los *embeddings*
-  JEPA necesitan *shrinkage* (mitiga varianza, sin sesgo apreciable).
+- Mejor `C = 0.01` → **λ = 100** (regularización fuerte).
+- **Balanced accuracy CV (mejor): 0.733**.
+- Curva de validación: el máximo está en **λ = 100** (0.733) y el
+  rendimiento **decae de forma monótona al reducir λ** (`C` grande, poca
+  regularización), hasta ~0.657 en `C = 1000` — una caída de **~7.6 pp**
+  por sobreajuste en el espacio de 1280 dimensiones. El lado de
+  regularización muy fuerte es casi plano (~0.721 en λ=1000, solo ~1 pp
+  bajo el óptimo): **predomina la varianza**, la regularización es
+  imprescindible.
 
 | Curva de validación (λ vs balanced acc.) | Curva de aprendizaje |
 |---|---|
 | ![Curva de validación](report_assets/validation_curve.png) | ![Curva de aprendizaje](report_assets/learning_curve.png) |
 
-## 4. Comparación estadística (LogReg L2 vs SVM RBF)
+## 3. Comparación estadística (LogReg L2 vs SVM RBF)
 
 | Modelo | Balanced accuracy (media ± std, 10×3 CV) |
 |---|:--:|
-| **Regresión Logística L2** | **0.791 ± 0.091** |
-| SVM RBF | 0.746 ± 0.098 |
+| Regresión Logística L2 | 0.733 ± 0.015 |
+| **SVM RBF** | **0.741 ± 0.015** |
 
-- Wilcoxon pareado (mismos *splits*): estadístico = 12.5,
-  **p = 0.0024 < 0.05**.
+- Wilcoxon pareado (mismos *splits*): estadístico = 54.5,
+  **p = 0.00042 < 0.05**.
 - **Veredicto: se rechaza H₀** — diferencia estadísticamente
-  significativa; **la Regresión Logística L2 es mejor** que la SVM RBF
-  sobre estos *embeddings*.
+  significativa; **la SVM RBF es mejor** que la Regresión Logística L2
+  sobre estos *embeddings*. El margen es pequeño (~0.8 pp) pero
+  consistente entre *folds* (std ±0.015).
 
 ![Comparación de modelos (boxplot por fold)](report_assets/model_comparison.png)
 
-## 5. Conclusiones
+## 4. Conclusiones
 
-- Los *embeddings* I-JEPA congelados son **linealmente separables** de
-  forma razonable: un clasificador lineal regularizado alcanza
-  **0.79 balanced accuracy** en 5 clases.
-- La **regularización fuerte (λ≈316)** es clave; sin ella el modelo
-  pierde ~3–4 puntos → varianza alta en el espacio de 1280 dimensiones.
-- El modelo lineal **supera de forma significativa** a la SVM RBF
-  (Wilcoxon p≈0.002), sugiriendo que el *kernel* no aporta sobre
-  representaciones ya ricas; coherente con el t-SNE (abajo).
+- Los *embeddings* I-JEPA congelados aportan **señal de clase real pero
+  moderada**: ~0.73–0.74 balanced accuracy en 5 clases (azar = 0.20).
+- La **regularización fuerte es imprescindible**: el óptimo está en
+  **λ = 100** y, al debilitarla, el modelo pierde **~7.6 pp** por
+  sobreajuste en el espacio de 1280 dimensiones (predomina la varianza;
+  el subajuste por exceso de regularización es leve, ~1 pp).
+- La **SVM RBF supera de forma estadísticamente significativa** a la
+  Regresión Logística L2 (Wilcoxon p≈4×10⁻⁴), aunque por **margen
+  pequeño** (~0.8 pp): el espacio de *embeddings* **no es perfectamente
+  separable de forma lineal** y un *kernel* no lineal aporta una mejora
+  pequeña pero real. Coherente con el solapamiento parcial entre clases
+  observable en el t-SNE.
 
 ![t-SNE de los embeddings JEPA coloreado por clase](report_assets/tsne.png)
 
-## 6. Referencias (IEEE)
+## 5. Referencias (IEEE)
 
 [1] M. Assran *et al.*, "Self-Supervised Learning from Images with a
 Joint-Embedding Predictive Architecture (I-JEPA)," *Proc. IEEE/CVF CVPR*,
@@ -102,8 +96,11 @@ Large-Scale Benchmark Archive for Remote Sensing Image Understanding,"
 generación del código base (ver nota de transparencia en `main.py`).
 
 ---
-*Pts*: pesos del rubric documentados en el código (`tuning.py`,
-`compare.py`, `viz.py`); los ítems con "—" forman parte del rubric sin
-peso numérico explícito en el código. Resultados generados por
-`python main.py all` (`outputs/metrics/{tuning,comparison}.json`,
-`outputs/eda/eda_summary.json`).
+*Resultados generados por `python main.py all`
+(`outputs/metrics/{tuning,comparison}.json`, `outputs/eda/eda_summary.json`).
+Métrica: balanced accuracy (subconjunto balanceado a 2 000/clase). La
+optimización de hiperparámetros, la comparación estadística (Wilcoxon)
+y la visualización t-SNE corresponden a ítems del rubric implementados
+en `tuning.py`, `compare.py` y `viz.py`. Esta corrida usó la malla de
+13 valores de `C`; la versión vigente del código la acota a 9 (sin
+cambiar el óptimo λ=100 ni el veredicto).*
