@@ -99,8 +99,20 @@ def load_cached_classes(cfg: Config) -> list[str] | None:
     return None
 
 
+# Logica de construccion del subconjunto. Bump => invalida la cache
+# subset.npz (junto con per_class) para no servir un subconjunto viejo.
+BUILD_VERSION = 2
+
+
 def build_subset(cfg: Config, classes: list[str], force: bool = False):
-    """Construye (o carga de cache) el subconjunto de imagenes etiqueta-unica.
+    """Construye (o carga de cache) el subconjunto multiclase balanceado.
+
+    BigEarthNet es multi-etiqueta (~3 etiquetas/parche): exigir parches
+    con UNA sola etiqueta del top-5 dejaba a las clases minoritarias casi
+    sin muestras (subconjunto degenerado de una sola clase, p. ej. todo
+    clase 0). En su lugar se toma cualquier parche con >=1 etiqueta del
+    top-5 y se le asigna, de entre esas, la clase menos representada hasta
+    el momento (balanceo greedy, determinista por orden de frecuencia).
 
     Devuelve (X uint8 [N,H,W,3], y int [N], classes list[str]).
     `classes` define el orden de los indices de clase.
@@ -108,24 +120,34 @@ def build_subset(cfg: Config, classes: list[str], force: bool = False):
     npz_path, cls_path = _subset_paths(cfg)
     if npz_path.exists() and cls_path.exists() and not force:
         cached_classes = json.loads(cls_path.read_text())
-        if cached_classes == classes:
-            data = np.load(npz_path)
+        data = np.load(npz_path)
+        if (cached_classes == classes
+                and "per_class" in data.files
+                and int(data["per_class"]) == cfg.per_class
+                and "build_version" in data.files
+                and int(data["build_version"]) == BUILD_VERSION):
             return data["X"], data["y"], cached_classes
 
     class_to_idx = {c: i for i, c in enumerate(classes)}
     top = set(classes)
     target = cfg.per_class
     counts = {c: 0 for c in classes}
+    cap = max(cfg.scan_size, target * len(classes) * 50)  # tope de seguridad
 
     ds = _load_stream(cfg).select_columns(["img", "labels"])
     X: list[np.ndarray] = []
     y: list[int] = []
     pbar = tqdm(total=target * len(classes), desc="build subset")
-    for ex in ds:
-        inter = top.intersection(ex["labels"])
-        if len(inter) != 1:
+    for n_seen, ex in enumerate(ds):
+        if n_seen >= cap:
+            break
+        present = top.intersection(ex["labels"])
+        if not present:
             continue
-        cls = next(iter(inter))
+        # Asigna la clase top-5 presente menos llena (balanceo greedy);
+        # orden por frecuencia para que el desempate sea determinista.
+        cls = min(sorted(present, key=lambda c: class_to_idx[c]),
+                  key=lambda c: counts[c])
         if counts[cls] >= target:
             continue
         img: Image.Image = ex["img"].convert("RGB").resize(
@@ -139,9 +161,20 @@ def build_subset(cfg: Config, classes: list[str], force: bool = False):
             break
     pbar.close()
 
+    min_needed = max(2, cfg.cv_splits)
+    short = {c: n for c, n in counts.items() if n < min_needed}
+    if short:
+        raise ValueError(
+            f"Subconjunto degenerado: clases con muy pocas muestras {short} "
+            f"(se necesitan >= {min_needed} por clase para CV de "
+            f"{cfg.cv_splits} folds). counts={counts}. Sube scan_size o "
+            f"baja cv_splits/per_class."
+        )
+
     X_arr = np.stack(X)
     y_arr = np.asarray(y, dtype=np.int64)
     cfg.make_dirs()
-    np.savez_compressed(npz_path, X=X_arr, y=y_arr)
+    np.savez_compressed(npz_path, X=X_arr, y=y_arr,
+                        per_class=cfg.per_class, build_version=BUILD_VERSION)
     cls_path.write_text(json.dumps(classes))
     return X_arr, y_arr, classes

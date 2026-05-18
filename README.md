@@ -22,9 +22,13 @@ estadísticamente una **Regresión Logística Regularizada** contra una
 1. **Escaneo de etiquetas** (`scan_labels`): pasada en *streaming* leyendo
    solo la columna `labels` para el EDA y para elegir las 5 clases más
    frecuentes (dataset multi-etiqueta de 43 clases CLC).
-2. **Subconjunto multiclase**: se conservan parches con **etiqueta única**
-   dentro del top-5, formando un problema de clasificación de 5 clases.
-   Por costo computacional se usa un subconjunto pequeño y balanceado
+2. **Subconjunto multiclase balanceado**: BigEarthNet es multi-etiqueta
+   (~3 etiquetas/parche), por lo que exigir parches con una **única**
+   etiqueta del top-5 dejaba clases casi vacías (subconjunto degenerado).
+   En su lugar se toma cualquier parche con ≥1 etiqueta del top-5 y se le
+   asigna la clase del top-5 **menos representada** hasta el momento
+   (balanceo *greedy*, determinista), formando un problema de 5 clases
+   balanceado. Por costo computacional el subconjunto es pequeño
    (`per_class = 35` → 175 imágenes); el encoder JEPA se aplica una sola
    vez sobre ese subconjunto y los *embeddings* se cachean.
 3. **Feature Extraction (JEPA)**: I-JEPA ViT-H/14 congelado; *embedding*
